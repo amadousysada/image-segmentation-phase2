@@ -1,0 +1,28 @@
+services:
+  api:
+    build: ./api
+    env_file: ./api/.env
+    ports:
+      - 8000:8000
+    develop:
+      watch:
+        # Watch your main app code and restart on changes
+        - action: sync+restart
+          path: ./api/
+          target: /app/
+
+  streamlit:
+    build: ./front
+    ports:
+      - "8501:8501"
+    environment:
+      STREAMLIT_API_URL: http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
+    develop:
+      watch:
+        # Watch your main app code and restart on changes
+        - action: sync+restart
+          path: ./front/main.py
+          target: /app/main.py
