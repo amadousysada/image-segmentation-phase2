@@ -1,117 +1,81 @@
-# Solutions pour le problème de désérialisation du modèle Keras
+# Solution Simple pour le problème de désérialisation du modèle Keras
 
 ## Problème identifié
 
-L'erreur survient lors du chargement d'un modèle Keras utilisant des couches KerasHub, spécifiquement `HierarchicalTransformerEncoder` et `MixFFN`. Le problème principal est une incompatibilité entre les paramètres utilisés lors de la sauvegarde et ceux attendus par la version actuelle de KerasHub.
+L'erreur survient lors du chargement d'un modèle Keras utilisant `HierarchicalTransformerEncoder` de KerasHub. Le problème est que cette classe sauvegarde l'objet `mlp` complet dans sa méthode `get_config()`, mais cette sérialisation complexe échoue lors de la désérialisation.
 
 ### Erreur spécifique
 ```
 ValueError: Unrecognized keyword arguments passed to HierarchicalTransformerEncoder: {'mlp': ..., 'drop_prop': 0.0}
 ```
 
-## Solutions implémentées
+## Solution implémentée (SIMPLE ET EFFICACE)
 
-### 1. Module de compatibilité (RECOMMANDÉ)
+J'ai créé une version corrigée de `HierarchicalTransformerEncoder` qui surcharge uniquement la méthode `from_config()` pour ignorer les paramètres problématiques et recréer la couche correctement.
 
-Un nouveau module `keras_compat.py` a été créé avec:
-- Des wrappers compatibles pour les couches KerasHub
-- Nettoyage automatique des paramètres obsolètes
-- Stratégies de fallback multiples
+### Code de la solution (`keras_compat.py`)
 
-**Utilisation:**
 ```python
-from keras_compat import load_model_with_fallback
-model = load_model_with_fallback(model_path, compile_model=False)
+class HierarchicalTransformerEncoder(OriginalHTE):
+    @classmethod
+    def from_config(cls, config):
+        # Nettoyer la config des paramètres problématiques
+        clean_config = config.copy()
+        problematic_params = ['mlp', 'drop_prop']
+        for param in problematic_params:
+            if param in clean_config:
+                clean_config.pop(param)
+        
+        # Recréer la couche avec les bons paramètres
+        return cls(
+            project_dim=clean_config.get('project_dim', 64),
+            num_heads=clean_config.get('num_heads', 1),
+            sr_ratio=clean_config.get('sr_ratio', 1),
+            drop_prob=clean_config.get('drop_prop', 0.0),
+            **{k: v for k, v in clean_config.items() 
+               if k not in ['project_dim', 'num_heads', 'sr_ratio', 'drop_prop', 'mlp']}
+        )
 ```
-
-### 2. Versions alternatives des dépendances
-
-Des fichiers `requirements.alternative.txt` et `Dockerfile.alternative` ont été créés avec des versions testées et compatibles:
-- TensorFlow 2.15.0 (au lieu de 2.19.0)
-- KerasHub 0.17.0 (au lieu de 0.21.1)
-
-### 3. Script de diagnostic
-
-Un script `diagnose_model.py` permet de:
-- Vérifier les versions des dépendances
-- Tester différentes stratégies de chargement
-- Identifier les problèmes spécifiques
 
 ## Instructions pour résoudre le problème
 
-### Option 1: Utiliser les corrections automatiques (ESSAYEZ CECI EN PREMIER)
+### Étape unique: Reconstruire l'image Docker
 
 ```bash
-# Reconstruire avec les corrections
 docker compose up --build
 ```
 
-Les corrections apportées à `main.py` et `keras_compat.py` devraient résoudre automatiquement le problème.
+C'est tout ! La correction automatique devrait résoudre le problème.
 
-### Option 2: Utiliser les versions alternatives
+## Pourquoi cette solution fonctionne
 
-Si l'Option 1 ne fonctionne pas:
+1. **Problème racine**: `HierarchicalTransformerEncoder.get_config()` sauvegarde l'objet `mlp` complet via `keras.saving.serialize_keras_object(self.mlp)`, mais cette sérialisation complexe échoue.
 
-```bash
-# Construire avec les versions alternatives
-docker build -f api/Dockerfile.alternative --build-arg USE_ALTERNATIVE_DEPS=true -t segmentation-api-alt ./api
+2. **Solution ciblée**: Au lieu d'essayer de désérialiser l'objet `mlp` complexe, on l'ignore complètement et on laisse la classe recréer ses propres couches internes dans son `__init__()`.
+
+3. **Minimal et robuste**: Cette approche ne change que ce qui est nécessaire et préserve tout le reste du comportement original.
+
+## Vérification du succès
+
+Une fois corrigé, vous devriez voir dans les logs :
+```
+api-1        | INFO:keras_compat:Chargement du modèle avec correction HierarchicalTransformerEncoder...
+api-1        | INFO:keras_compat:✓ Modèle chargé avec succès
+api-1        | INFO:main:Model loaded, summary :
+api-1        | INFO:     Application startup complete.
 ```
 
-Puis modifier `docker-compose.yml` pour utiliser cette image.
+## Si le problème persiste
 
-### Option 3: Diagnostic et debug
+Si cette solution ne fonctionne pas, utilisez le script de diagnostic pour plus d'informations :
 
 ```bash
-# Exécuter le diagnostic
 cd api
 python diagnose_model.py
 ```
 
-### Option 4: Re-sauvegarder le modèle
-
-Si toutes les options précédentes échouent, il faudra re-sauvegarder le modèle avec des versions compatibles.
-
-## Variables d'environnement utiles
-
-Ajoutez dans votre `.env`:
-
-```bash
-# Configuration de debugging
-TF_CPP_MIN_LOG_LEVEL=2
-KERAS_VERBOSE=1
-
-# Timeout MLflow
-MLFLOW_HTTP_REQUEST_TIMEOUT=6000
-```
-
-## Vérifications post-correction
-
-Une fois le problème résolu, vous devriez voir:
-```
-api-1        | INFO:     Waiting for application startup.
-api-1        | INFO:keras_compat:Modèle chargé avec succès avec objets compatibles
-api-1        | INFO:main:Model loaded, summary :
-api-1        | INFO:main:Loaded model from /tmp/.../artifacts
-api-1        | INFO:     Application startup complete.
-```
-
 ## Notes techniques
 
-### Paramètres problématiques identifiés:
-- `mlp`: Paramètre obsolète dans `HierarchicalTransformerEncoder`
-- `drop_prop`: Paramètre obsolète, remplacé par `dropout`
-
-### Stratégies de fallback:
-1. Objets compatibles avec nettoyage automatique
-2. Objets KerasHub originaux
-3. Chargement sans compilation
-4. Recherche de SavedModel
-5. Chargement sans custom_objects (dernier recours)
-
-## Aide supplémentaire
-
-Si le problème persiste:
-1. Vérifiez les logs détaillés avec `docker compose logs api`
-2. Exécutez le script de diagnostic
-3. Vérifiez que votre modèle MLflow est accessible
-4. Considérez re-sauvegarder le modèle avec les versions actuelles
+- **Pas de changement de versions** : Cette solution fonctionne avec vos versions actuelles (TensorFlow 2.19.0, KerasHub 0.21.1)
+- **Correction ciblée** : Seule la désérialisation de `HierarchicalTransformerEncoder` est modifiée
+- **Préservation de fonctionnalité** : Toutes les autres couches et fonctionnalités restent intactes

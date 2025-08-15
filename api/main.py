@@ -13,7 +13,7 @@ from settings import get_settings
 import tensorflow as tf
 
 from utils import MeanIoUArgmax, Model
-from keras_compat import load_model_with_fallback
+from keras_compat import load_model_simple
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,8 +36,8 @@ async def load_model():
              )
             keras_model_path = os.path.join(model_path, "mit_segformer_model.keras")
             
-            # Utiliser la fonction de chargement avec fallback
-            model = load_model_with_fallback(keras_model_path, compile_model=False)
+            # Utiliser la fonction de chargement simplifiée
+            model = load_model_simple(keras_model_path, compile_model=False)
             
             logger.info("Model loaded, summary :")
             model.summary()
