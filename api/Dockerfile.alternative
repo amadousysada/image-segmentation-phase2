@@ -1,0 +1,36 @@
+# Dockerfile alternatif avec versions spécifiques pour éviter les problèmes de compatibilité
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Installer les dépendances système
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libhdf5-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copier les fichiers de requirements en premier pour utiliser le cache Docker
+COPY requirements.txt requirements.alternative.txt ./
+
+# Choisir les requirements en fonction d'une variable d'environnement
+ARG USE_ALTERNATIVE_DEPS=false
+RUN if [ "$USE_ALTERNATIVE_DEPS" = "true" ] ; then \
+        pip install --no-cache-dir -r requirements.alternative.txt ; \
+    else \
+        pip install --no-cache-dir -r requirements.txt ; \
+    fi
+
+# Copier le code de l'application
+COPY . .
+
+# Variables d'environnement pour TensorFlow
+ENV TF_CPP_MIN_LOG_LEVEL=2
+ENV PYTHONPATH="${PYTHONPATH}:/app"
+
+# Exposer le port
+EXPOSE 8000
+
+# Commande par défaut
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
