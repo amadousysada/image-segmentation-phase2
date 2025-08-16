@@ -13,6 +13,7 @@ from settings import get_settings
 import tensorflow as tf
 
 from utils import MeanIoUArgmax, Model
+from keras_compat import load_model_simple
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -22,10 +23,6 @@ conf = get_settings()
 
 MLFLOW_TRACKING_URI = conf.MLFLOW_TRACKING_URI
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-
-from keras_hub.src.models.mit.mit_layers import MixFFN as KHMixFFN
-from keras_hub.src.models.mit.mit_layers import OverlappingPatchingAndEmbedding as OPE
-from keras_hub.src.models.mit.mit_layers import HierarchicalTransformerEncoder as KHEnc
 
 async def load_model():
     os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", "6000")
@@ -38,16 +35,10 @@ async def load_model():
                  dst_path=temp_dir
              )
             keras_model_path = os.path.join(model_path, "mit_segformer_model.keras")
-            model = tf.keras.models.load_model(
-                keras_model_path,
-                compile=False,
-                custom_objects={
-                    "MeanIoUArgmax": MeanIoUArgmax,
-                    "MixFFN": KHMixFFN,
-                    "OverlappingPatchingAndEmbedding": OPE,
-                    "HierarchicalTransformerEncoder": KHEnc,
-                }
-            )
+            
+            # Utiliser la fonction de chargement simplifiée
+            model = load_model_simple(keras_model_path, compile_model=False)
+            
             logger.info("Model loaded, summary :")
             model.summary()
             Model().set_model(model)
