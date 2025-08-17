@@ -3,7 +3,16 @@ import numpy as np
 import tensorflow as tf
 
 IMG_SIZE = (224, 224)
-
+DEFAULT_LEGEND = {
+    0: "🟣 Flat (route, trottoir)",
+    1: "🔴 Human (personne, cycliste)",
+    2: "🔵 Vehicle (voiture, camion)",
+    3: "⚫  Construction (bâtiment, mur)",
+    4: "🟡 Object (poteau, panneau)",
+    5: "🟢 Nature (végétation, terrain)",
+    6: "🩵 Sky (ciel) - Bleu ciel",
+    7: "🖤  Void (non labellisé, hors ROI)"
+}
 class MeanIoUArgmax(tf.keras.metrics.MeanIoU):
     """Custom MeanIoU metric that applies argmax to predictions"""
     def __init__(self, num_classes, name="mean_io_u_argmax", **kwargs):

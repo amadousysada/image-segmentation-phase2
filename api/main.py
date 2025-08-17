@@ -1,17 +1,31 @@
 from __future__ import annotations
 
 import logging
+import os, warnings, tempfile
 
+# 1) Forcer CPU si pas de GPU (élimine le message CUDA 303)
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+# 2) Réduire le bruit TensorFlow côté C++ (INFO/WARNING)
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
+# 3) Masquer le warning Keras "build() was called..."
+warnings.filterwarnings(
+    "ignore",
+    message=r"`build\(\)` was called on layer '.*'[, ].*does not have a `build\(\)` method.*",
+    category=UserWarning,
+    module=r"keras\.src\.layers\.layer",
+)
 import mlflow
-import os, tempfile
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
+from keras_compat import load_model_simple
 from routes import router
 from settings import get_settings
 import tensorflow as tf
-
+import cloudpickle
 from utils import MeanIoUArgmax, Model
 
 # Configure logging
@@ -23,31 +37,29 @@ conf = get_settings()
 MLFLOW_TRACKING_URI = conf.MLFLOW_TRACKING_URI
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
-from keras_hub.src.models.mit.mit_layers import MixFFN as KHMixFFN
-from keras_hub.src.models.mit.mit_layers import OverlappingPatchingAndEmbedding as OPE
-from keras_hub.src.models.mit.mit_layers import HierarchicalTransformerEncoder as KHEnc
-
 async def load_model():
     os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", "6000")
     client = mlflow.MlflowClient()
+    from importlib.metadata import version
+    print("Les versions des paquets:")
+    print(f"keras_hub => {version('keras_hub')}")
+    print(f"keras => {version('keras')}")
+    print(f"tensorflow => {version('tensorflow')}")
+    print(f"tensorflow keras => {tf.keras.__version__}")
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
+            logger.info(f"Temp dir: {temp_dir}")
             model_path = client.download_artifacts(
                  conf.RUN_ID,
-                 "artifacts",
+                 "model",
                  dst_path=temp_dir
              )
-            keras_model_path = os.path.join(model_path, "mit_segformer_model.keras")
-            model = tf.keras.models.load_model(
-                keras_model_path,
-                compile=False,
-                custom_objects={
-                    "MeanIoUArgmax": MeanIoUArgmax,
-                    "MixFFN": KHMixFFN,
-                    "OverlappingPatchingAndEmbedding": OPE,
-                    "HierarchicalTransformerEncoder": KHEnc,
-                }
-            )
+            obj = {}
+            keras_model_path = os.path.join(model_path, "data", "model.keras")
+            obj_path = os.path.join(model_path, "data", "global_custom_objects.cloudpickle")
+            with open(obj_path, "rb") as f:
+                obj = cloudpickle.load(f)
+            model = load_model_simple(keras_model_path, obj, compile_model=False)
             logger.info("Model loaded, summary :")
             model.summary()
             Model().set_model(model)
